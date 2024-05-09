@@ -7,6 +7,7 @@ from django.contrib.auth.models import Group
 
 from common.models import State, District, City, Language
 
+# Constants
 APPROVAL_STATUS = [
         ('pending_approval', 'pending approval'),
         ('active', 'active'),
@@ -94,11 +95,14 @@ class Profile(models.Model):
     location = models.ForeignKey(Location, on_delete=models.PROTECT)
     updated = models.DateField(auto_now=True)
 
+"""
+Static roles section: Following models define the static roles.
+"""
+
 class OrganisationType(models.Model):
     name = models.CharField(max_length=200)
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now=True)
-
 
 class Organisation(models.Model):
     added_by = models.ForeignKey(User, on_delete=models.PROTECT,
@@ -106,12 +110,12 @@ class Organisation(models.Model):
     name_of_association = models.CharField(max_length=200, unique=True)
     date_of_association = models.DateField()
     type = models.ForeignKey(OrganisationType, on_delete=models.PROTECT)
+    organisation = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True)
     location = models.ForeignKey(Location, on_delete=models.PROTECT)
     status = models.CharField(choices=APPROVAL_STATUS, max_length=100, default="pending_approval")
     approved_by = models.ForeignKey(User, on_delete=models.PROTECT, null=True, blank=True)
     created = models.DateField(auto_now_add=True)
     updated = models.DateField(auto_now=True)
-    
     
     class Meta:
         ordering = ['name_of_association', '-date_of_association']
@@ -148,23 +152,24 @@ class School(models.Model):
         return self.name_of_association
 
 
-class Payment(models.Model):
-    PAYMENT_CHOICES = [('IN_PROCESS', 'IN_PROCESS'), ('COMPLETED', 'COMPLETED'),]
-    date_of_payment = models.DateField()
-    amount = models.IntegerField()
-    utr = models.CharField(max_length=200, unique=True)
-    receipt = models.FileField(upload_to='receipts/')
-    expiry_date = models.DateField()  # payment expiry
-    status = models.CharField(max_length=50, choices=PAYMENT_CHOICES)
-    school = models.ForeignKey(School, on_delete=models.PROTECT)
+class OrganisationAuthority(models.Model):
+    """
+    The 'organization authority' is the highest role within an organization's hierarchy of roles.
+    Users holding this role has access to all activities and resources within the organization.
+    """
+    user = models.ForeignKey(User, on_delete=models.PROTECT, null=False, blank=False, related_name="org_auth")
     organisation = models.ForeignKey(Organisation, on_delete=models.PROTECT)
-    added_by = models.ForeignKey(User, on_delete=models.PROTECT)
+    approved_by = models.ForeignKey(User, on_delete=models.PROTECT, null=True, blank=True)
+    status = models.CharField(choices=APPROVAL_STATUS, max_length=100, default="pending_approval")
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ['date_of_payment']
+        verbose_name = 'Organisation Authority'
+        verbose_name_plural = 'Organisation Authority'
 
     def __str__(self):
-        return f"{self.school.name_of_association} - {self.date_of_payment}"
+        return f"{self.user} - {self.organisation}"
 
 class OrganisationCoordinator(models.Model):
     """
@@ -184,6 +189,25 @@ class OrganisationCoordinator(models.Model):
 
     def __str__(self):
         return f"{self.user} - {self.organisation}"
+
+class SchoolAuthority(models.Model):
+    """
+    The 'school authority' is the highest role within a school's hierarchy of roles.
+    Users holding this role has access to all activities and resources within the school.
+    """
+    user = models.ForeignKey(User, on_delete=models.PROTECT, null=False, blank=False, related_name="school_auth")
+    school = models.ForeignKey(School, on_delete=models.PROTECT)
+    status = models.CharField(choices=APPROVAL_STATUS, max_length=100, default="pending_approval")
+    approved_by = models.ForeignKey(User, on_delete=models.PROTECT, null=True, blank=True)
+    created = models.DateTimeField(auto_now_add=True)
+    updated = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'School Coordinator'
+        verbose_name_plural = 'School Coordinators'
+
+    def __str__(self):
+        return f"{self.user} - {self.school}"
 
 
 class SchoolCoordinator(models.Model):
@@ -236,7 +260,6 @@ class ClassName(models.Model):
 class Section(models.Model):
     name = models.CharField(max_length=50)
 
-
 class ClassCoordinator(models.Model):
     """
     An class coordinator is a user assigned to coordinate activities within a specific class & section.
@@ -276,6 +299,15 @@ class ClassTeacher(models.Model):
     created = models.DateTimeField(auto_now_add=True)
     updated = models.DateTimeField(auto_now_add=True)
 
+"""
+Static roles section ends.
+"""
+
+
+"""
+Dynamic roles section: Following models define the dynamic roles.
+"""
+
 class Context(models.Model):
     """
     Defines the context or level for the group to operate on.
@@ -308,15 +340,14 @@ class UserGroup(models.Model):
     status = models.CharField(choices=APPROVAL_STATUS, max_length=100, default="pending_approval")
     approved_by = models.ForeignKey(User, on_delete=models.PROTECT, null=True, blank=True)
 
-class Condition(models.Model):
-    sender = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='sender')
-    receiver = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='receiver')
-    single_msg = models.BooleanField(default=False)
-    bulk_msg = models.BooleanField(default=False)
 
-    class Meta:
-        unique_together = ['sender', 'receiver']
+"""
+Dynamic roles section ends.
+"""
 
+"""
+Message section: Following models define the message models.
+"""
 
 class MessageType(models.Model):
     TYPE_CHOICES = [
@@ -345,3 +376,34 @@ class Message(models.Model):
         MessageType, on_delete=models.CASCADE,
         related_name='message_type'
     )
+
+class Condition(models.Model):
+    sender = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='sender')
+    receiver = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='receiver')
+    single_msg = models.BooleanField(default=False)
+    bulk_msg = models.BooleanField(default=False)
+
+    class Meta:
+        unique_together = ['sender', 'receiver']
+
+"""
+Message section ends.
+"""
+
+class Payment(models.Model):
+    PAYMENT_CHOICES = [('IN_PROCESS', 'IN_PROCESS'), ('COMPLETED', 'COMPLETED'),]
+    date_of_payment = models.DateField()
+    amount = models.IntegerField()
+    utr = models.CharField(max_length=200, unique=True)
+    receipt = models.FileField(upload_to='receipts/')
+    expiry_date = models.DateField()  # payment expiry
+    status = models.CharField(max_length=50, choices=PAYMENT_CHOICES)
+    school = models.ForeignKey(School, on_delete=models.PROTECT)
+    organisation = models.ForeignKey(Organisation, on_delete=models.PROTECT)
+    added_by = models.ForeignKey(User, on_delete=models.PROTECT)
+
+    class Meta:
+        ordering = ['date_of_payment']
+
+    def __str__(self):
+        return f"{self.school.name_of_association} - {self.date_of_payment}"
